@@ -1,10 +1,27 @@
 #!/usr/bin/python
 
-#To do:
-#  Automatic sorting of the groups
-#  Interactive group ordering
+#Ideas:
+#  Interactive group ordering with vim?
 
 import json
+import argparse
+import os
+import sys
+
+#TODO list the actions alongside their entry functions so that the main code
+#becomes a simple dispatcher
+info_actions = [
+	'list-groups',
+]
+change_actions = [
+	'prettify-grid',
+]
+actions = info_actions + change_actions
+
+_def_min_width = 140
+_def_min_height = 110
+_def_vert_space = 15
+_def_horiz_space = 15
 
 def get_json(filepath):
 	""" Load the session JSON present in the file. """
@@ -30,6 +47,12 @@ def get_tabview_group(session_json, which_window=0):
 
 	return groupinfo_json
 
+def set_tabview_group(session_json, which_window, tabviewgroup_json):
+	""" Set the data in the 'tabview-group' item, see get_tabview_group() """
+
+	session_json['windows'][which_window]['extData']['tabview-group'] = json.dumps(
+		tabviewgroup_json)
+
 def get_tabview_ui(session_json, which_window=0):
 	""" From the session JSON, load the string-encoded JSON 'Tab Groups' UI
 	data, which holds location information for 'Tab Groups' UI.
@@ -42,72 +65,34 @@ def get_tabview_ui(session_json, which_window=0):
 	return ui_info_json
 
 def get_groups(session_json, which_window=0):
-	""" From the session JSON, return a list of 3-tuples
-		(id_str, id_int, name_str)
+	""" From the session JSON, return a list of tuples
+		(id_int, name_str)
 	for each tab group.
 
 	Example output:
-	[(u'24', 24, u'uzbl'),
-	(u'10', 10, u'py/cpp reference'),
-	(u'12', 12, u'urxvt')]
+	[(24, u'uzbl'),
+	(10, u'py/cpp reference'),
+	(12, u'urxvt')]
 	"""
 
 	groupinfo_json = get_tabview_group(session_json, which_window)
 
-	groups = [(id_key, info['id'], info['title'])
-		for (id_key,info) in groupinfo_json.iteritems()]
+	groups = [(info['id'], info['title'])
+		for (_,info) in groupinfo_json.iteritems()]
 	return groups
 
-def make_tabs_dict(session_json):
-	""" Create a dict-of-lists from the session JSON.
+def tidy_groups(
+	session_json,
+	which_window=0,
+	min_width=_def_min_width,
+	min_height=_def_min_height,
+	vertical_space=_def_vert_space,
+	horizontal_space=_def_horiz_space):
 
-	Structure:
-	{
-	group_id: [
-		{
-		'url': 'URL 1',
-		'title': 'Title 1'
-		},
-		{
-		'url': 'URL 2',
-		'title': 'Title 2'
-		},
-		{...}],
-	another_group_id: [ list of tab dicts ],
-	...
-	}
-
-	group_id and another_group_id are ints
-	"""
-
-	tabs_dict = {}
-	main_window = get_window(session_json)
-	tab_list = main_window['tabs']
-	for tab in tab_list:
-		group_id_json_str = tab['extData']['tabview-tab']
-		group_id = json.loads(group_id_json_str)['groupID']
-
-		if len(tab['entries']) == 0:
-			tab_url = 'about:blank'
-			tab_title = '(untitled)'
-		else:
-			tab_url = tab['entries'][0]['url']
-			try:
-				tab_title = tab['entries'][0]['title']
-			except KeyError:
-				tab_title = '(untitled)'
-
-		if not group_id in tabs_dict:
-			tabs_dict[group_id] = []
-
-		tabs_dict[group_id].append({'url':tab_url, 'title':tab_title})
-
-	return tabs_dict
-
-def tidy_groups(session_json, which_window=0, min_width=160, min_height=140,
-	vertical_space=15, horizontal_space=15):
 	""" In the session JSON, change the 'tabview-group' field in-place.
 	See get_tabview_group().
+
+	Returns the number of groups that have changed
 	"""
 
 	groupinfo_json = get_tabview_group(session_json, which_window)
@@ -133,8 +118,14 @@ def tidy_groups(session_json, which_window=0, min_width=160, min_height=140,
 
 		raise ValueError(error_str)
 
+	if args.sort_by_name:
+		sortfn = lambda (k1,one),(k2,two) : cmp(one['title'],two['title'])
+	else: #args.sort_by_id
+		sortfn = lambda (k1,one),(k2,two) : cmp(one['id'],two['id'])
+	s = sorted(groupinfo_json.iteritems(), cmp=sortfn)
+
 	group_count = 0
-	for (id_key, info) in groupinfo_json.iteritems():
+	for (id_key, info) in s:
 		new_top = ((vertical_space + min_height) *
 			(group_count/max_groups_in_line) + vertical_space)
 
@@ -151,20 +142,111 @@ def tidy_groups(session_json, which_window=0, min_width=160, min_height=140,
 		}
 		group_count += 1
 
-	# the data in 'tabview-group' must be a string
-	session_json['windows'][which_window]['extData']['tabview-group'] = json.dumps(
-		groupinfo_json)
+	set_tabview_group(session_json, which_window, groupinfo_json)
+
+	return group_count
+
+def print_groups(session_json, args):
+	groups = get_groups(session_json)
+
+	if args.sort_by_name:
+		sortfn = lambda (k1,a),(k2,b) : cmp(a,b)
+	else: #args.sort_by_id
+		sortfn = lambda (k1,a),(k2,b) : cmp(k1,k2)
+
+	groups.sort(cmp=sortfn)
+
+	print 'Found {} groups:'.format(len(groups))
+	for (id,name) in groups:
+		print id,'\t',name
+
+def prettify_grid(j, args):
+	w, h, vs, hs = (args.min_width, args.min_height,
+		args.vert_space, args.horiz_space)
+
+	in_file, out_file = args.input_file, args.output_file
+
+	#TODO sanitize values
+
+	num_existing_groups = len(get_groups(j))
+
+	num_changed_groups = tidy_groups(j,
+		which_window=0,
+		min_width=w,
+		min_height=h,
+		vertical_space=vs,
+		horizontal_space=hs)
+
+	if num_existing_groups != num_changed_groups:
+		print ('ERROR: There were {} groups before and {} groups ' +
+			'after the tidying operation, aborting.\n').format(
+			num_existing_groups, num_changed_groups)
+		sys.exit(-1)
+
+	f = open(out_file, 'w')
+	f.write(json.dumps(j))
+	f.close()
+
+	print ('Successfully wrote {} tab groups to file {} with the ' +
+		'following sizes:\n' +
+		'Group width {} px\n' +
+		'Group height {} px\n' +
+		'Vertical spacing {} px\n' +
+		'Horizontal spacing {} px\n').format(
+			num_changed_groups, out_file,
+			w, h, vs, hs)
 
 if __name__ == '__main__':
 
-	session_file = 'sessionstore.js'
+	parser = argparse.ArgumentParser(
+		formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+		description='Firefox session store ' +
+			'handling utility.',
+		epilog='This program works by modifying a copy of the input ' +
+		'file. Currently, you must manually substitute the original ' +
+		'session file with the one this program creates.')
+	parser.add_argument('action', choices=actions,
+		help='what to do with the Firefox session file')
+	parser.add_argument('input_file',
+		help='path to the original sessionstore.js file')
+	parser.add_argument('-o', '--output_file',
+		help='path to the modified sessionstore.js file ' +
+		'(will not accept the same path as input-file)')
+	parser.add_argument('--window', default=0,
+		help='index of the window')
 
-	session_json = get_json(session_file)
-	groups = get_groups(session_json)
-	if 0:
-		for i in groups: print i
+	parser.add_argument('--min_width', type=int, default=_def_min_width,
+		help='width (pixels) of each tab group')
+	parser.add_argument('--min_height', type=int, default=_def_min_height,
+		help='height (pixels) of each tab group')
+	parser.add_argument('--vert_space', type=int, default=_def_vert_space,
+		help='vertical spacing (pixels) between tab groups')
+	parser.add_argument('--horiz_space', type=int, default=_def_horiz_space,
+		help='horizontal spacing (pixels) between tab groups')
+	parser.add_argument('--sort_by_name', action='store_true',
+		help='sort groups by name')
+	parser.add_argument('--sort_by_id', action='store_true',
+		help='sort groups by id')
 
-	if 1:
-		tidy_groups(session_json)
-		print json.dumps(session_json)
+	args = parser.parse_args()
+	in_file = args.input_file
+	out_file = args.output_file
+
+	if not os.path.exists(in_file):
+		e = "Error: Session file '{}' does not exist.".format(in_file)
+		sys.exit(e)
+
+	if (args.action in change_actions and (
+		os.path.exists(out_file) or out_file == in_file)):
+		e = ("Error: The output file cannot already exist " +
+			"or be the same as the input file.")
+		sys.exit(e)
+
+	j = get_json(in_file)
+
+	if args.action == 'list-groups':
+		print_groups(j, args)
+
+	elif args.action == 'prettify-grid':
+		prettify_grid(j, args)
 
