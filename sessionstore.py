@@ -1,5 +1,22 @@
 #!/usr/bin/python
 
+#   This file is part of sessionstore-fiddle.
+#
+#   Copyright (C) 2013 Igor Almeida <igor.contato@gmail.com>
+#
+#   sessionstore-fiddle is free software: you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation, either version 3 of the License, or
+#   (at your option) any later version.
+#
+#   sessionstore-fiddle is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with sessionstore-fiddle.  If not, see <http://www.gnu.org/licenses/>.
+
 #Ideas:
 #  Interactive group ordering with vim?
 
@@ -223,9 +240,10 @@ if __name__ == '__main__':
 		help='vertical spacing (pixels) between tab groups')
 	parser.add_argument('--horiz_space', type=int, default=_def_horiz_space,
 		help='horizontal spacing (pixels) between tab groups')
-	parser.add_argument('--sort_by_name', action='store_true',
+	#TODO add_mutually_exclusive?
+	parser.add_argument('--sort_by_name', action='store_true', default=True,
 		help='sort groups by name')
-	parser.add_argument('--sort_by_id', action='store_true',
+	parser.add_argument('--sort_by_id', action='store_true', default=False,
 		help='sort groups by id')
 
 	args = parser.parse_args()
@@ -241,6 +259,12 @@ if __name__ == '__main__':
 		e = ("Error: The output file cannot already exist " +
 			"or be the same as the input file.")
 		sys.exit(e)
+
+	#Make sure only one sorting method is used
+	if args.sort_by_id:
+		args.sort_by_name = False
+	elif args.sort_by_name:
+		args.sort_by_id = False
 
 	j = get_json(in_file)
 
