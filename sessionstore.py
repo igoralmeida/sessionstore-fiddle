@@ -1,5 +1,7 @@
 #!/usr/bin/python
 
+#   sessionstore.py, a Firefox session store handling utility.
+#
 #   This file is part of sessionstore-fiddle.
 #
 #   Copyright (C) 2013 Igor Almeida <igor.contato@gmail.com>
